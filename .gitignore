@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Dev/install artefacts
+.venv/
+venv/
+env/
+
+# Logs and temp files
+elscione_dl_errors.log
+body.html
+title.html
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Download cache
+.cache/

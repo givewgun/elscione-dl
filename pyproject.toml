@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "elscione-dl"
+version = "0.1.0"
+description = "Bulk downloader for server.elscione.com"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx[http2]>=0.27",
+    "tenacity>=8.3",
+    "textual>=0.61",
+    "rich>=13.7",
+    "typer>=0.12",
+    "questionary>=2.0",
+    "pydantic-settings>=2.3",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "pytest-mock>=3.14",
+]
+
+[project.scripts]
+elscione-dl = "elscione_dl.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/elscione_dl"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

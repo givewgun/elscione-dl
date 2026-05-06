@@ -1,0 +1,16 @@
+[elscione]
+base_url = "https://server.elscione.com"
+concurrency = 3
+# delay_min_ms and delay_max_ms: jittered delay between requests (ms)
+delay_min_ms = 250
+delay_max_ms = 750
+# retry attempts before marking a file as failed
+max_retries = 5
+# formats: "epub", "pdf", or "both" — overridden interactively per-title in TUI
+default_formats = "epub"
+
+[paths]
+# Leave blank to auto-detect OneDrive path
+onedrive_root = ""
+# Relative to onedrive_root/Documents
+library_subdir = "manga novel"
