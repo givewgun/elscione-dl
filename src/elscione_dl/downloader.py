@@ -27,7 +27,7 @@ from tenacity import (
 from .api import Entry, filter_latest_versions, walk_title
 from .config import get_settings
 from .manifest import RunManifest, TitleManifest
-from .paths import title_dir
+from .paths import format_dir
 
 _RETRYABLE = (httpx.HTTPError, httpx.RemoteProtocolError, httpx.TimeoutException)
 
@@ -194,10 +194,9 @@ async def download_titles(
     console = Console()
 
     # First pass: enumerate everything so we can show a total summary
-    plan: list[tuple[str, Path, TitleManifest, list[Entry]]] = []
+    plan: list[tuple[str, TitleManifest, list[Entry]]] = []
     for title_name, title_href, formats in selections:
         run_manifest.add_title(title_name)
-        dest = title_dir(title_name)
         tm = TitleManifest(title_name)
 
         entries: list[Entry] = []
@@ -215,13 +214,13 @@ async def download_titles(
             console.print(f"[yellow]No matching files in:[/yellow] {title_name}")
             continue
 
-        plan.append((title_name, dest, tm, entries))
+        plan.append((title_name, tm, entries))
 
     if not plan:
         console.print("[yellow]Nothing to download.")
         return
 
-    total_files = sum(len(entries) for _, _, _, entries in plan)
+    total_files = sum(len(entries) for _, _, entries in plan)
     console.print(
         f"[bold]Queued {total_files} file(s) across {len(plan)} title(s) "
         f"(concurrency={cfg.concurrency})[/bold]"
@@ -230,8 +229,9 @@ async def download_titles(
     progress = _make_progress(console)
     with progress:
         tasks: list[asyncio.Task] = []
-        for title_name, dest, tm, entries in plan:
+        for title_name, tm, entries in plan:
             for entry in entries:
+                dest = format_dir(title_name, entry.ext)
                 tasks.append(asyncio.create_task(
                     _download_task(
                         client, entry, dest, semaphore, progress, console, tm, run_manifest, dry_run

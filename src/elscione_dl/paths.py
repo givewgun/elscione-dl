@@ -69,6 +69,20 @@ def title_dir(title_name: str) -> Path:
     return d
 
 
+def format_dir(title_name: str, ext: str) -> Path:
+    """Return the per-format subdirectory for a title (e.g. .../Title/epub/).
+
+    Files with unrecognised extensions go directly into the title directory.
+    """
+    known = {".epub", ".pdf", ".cbz", ".cbr", ".zip"}
+    base = title_dir(title_name)
+    if ext.lower() in known:
+        d = base / ext.lstrip(".").lower()
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    return base
+
+
 def manifest_store() -> Path:
     """Return the hidden metadata directory inside the library root."""
     d = library_root() / ".elscione_dl"
