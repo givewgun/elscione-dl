@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import AsyncIterator
@@ -142,3 +143,36 @@ async def probe_title_formats(
         if e.ext in _FILE_EXTS:
             exts.add(e.ext)
     return exts
+
+
+# Detects version markers like {v2}, {v10} in filenames, optionally with one
+# surrounding whitespace on either side so the resulting base key isn't left
+# with stray spaces (e.g. "Vol 01 {v2}.epub" → "Vol 01.epub").
+_VERSION_RE = re.compile(r"\s?\{v(\d+)\}\s?", re.IGNORECASE)
+
+
+def _file_dedup_key(name: str) -> tuple[str, int]:
+    """
+    Return (base_key, version) for a filename.
+    Files with identical base_key are duplicates differing only in version.
+    """
+    m = _VERSION_RE.search(name)
+    version = int(m.group(1)) if m else 1
+    key = _VERSION_RE.sub("", name)
+    key = re.sub(r"\s+", " ", key).strip()
+    return key.lower(), version
+
+
+def filter_latest_versions(entries: list[Entry]) -> list[Entry]:
+    """
+    Drop older versions of the same file. Files are grouped by a normalised key
+    (filename minus any {vN} marker); within each group, only the highest
+    version is kept. Files without a version marker are treated as v1.
+    """
+    by_key: dict[str, tuple[int, Entry]] = {}
+    for e in entries:
+        key, ver = _file_dedup_key(e.name)
+        existing = by_key.get(key)
+        if existing is None or existing[0] < ver:
+            by_key[key] = (ver, e)
+    return [v[1] for v in by_key.values()]

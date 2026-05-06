@@ -76,3 +76,61 @@ def test_entry_ext_pdf():
 def test_entry_url():
     e = Entry(href="/Novels/bar.epub", is_dir=False, size=10, mtime=0)
     assert e.url == f"{BASE}/Novels/bar.epub"
+
+
+# ---------- filter_latest_versions ----------
+from elscione_dl.api import filter_latest_versions, _file_dedup_key
+
+
+def _f(name: str) -> Entry:
+    return Entry(href=f"/Novels/Title/{name}", is_dir=False, size=10, mtime=0)
+
+
+def test_dedup_key_no_version():
+    key, ver = _file_dedup_key("Volume 01 [Seven Seas][Kobo].epub")
+    assert ver == 1
+    assert "v1" not in key
+    assert "v2" not in key
+
+
+def test_dedup_key_with_version():
+    key, ver = _file_dedup_key("Volume 01 [Seven Seas]{v2}[Kobo].epub")
+    assert ver == 2
+    # The base key should match the no-version version (case-insensitive)
+    base_key, _ = _file_dedup_key("Volume 01 [Seven Seas][Kobo].epub")
+    assert key == base_key
+
+
+def test_filter_latest_keeps_highest_version():
+    entries = [
+        _f("Volume 01 [Seven Seas][Kobo].epub"),
+        _f("Volume 01 [Seven Seas]{v2}[Kobo].epub"),
+        _f("Volume 02 [Seven Seas][Kobo].epub"),
+    ]
+    result = filter_latest_versions(entries)
+    names = sorted(e.name for e in result)
+    assert names == [
+        "Volume 01 [Seven Seas]{v2}[Kobo].epub",
+        "Volume 02 [Seven Seas][Kobo].epub",
+    ]
+
+
+def test_filter_latest_keeps_distinct_extensions():
+    # Same volume, different formats should both be kept
+    entries = [
+        _f("Volume 01.epub"),
+        _f("Volume 01.pdf"),
+    ]
+    result = filter_latest_versions(entries)
+    assert len(result) == 2
+
+
+def test_filter_latest_v3_beats_v2():
+    entries = [
+        _f("Vol 01 {v2}.epub"),
+        _f("Vol 01 {v3}.epub"),
+        _f("Vol 01.epub"),
+    ]
+    result = filter_latest_versions(entries)
+    assert len(result) == 1
+    assert "{v3}" in result[0].name

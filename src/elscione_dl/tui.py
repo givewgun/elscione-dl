@@ -51,21 +51,28 @@ class TitleSelection:
     title_name: str
     title_href: str
     formats: set[str] = field(default_factory=lambda: {".epub"})
+    latest_only: bool = True
+
+
+@dataclass
+class FormatChoice:
+    formats: set[str]
+    latest_only: bool
 
 
 # ---------------------------------------------------------------------------
 # Format picker modal
 # ---------------------------------------------------------------------------
 
-class FormatModal(ModalScreen[set[str]]):
-    """Modal to choose PDF/EPUB/both for a single title."""
+class FormatModal(ModalScreen[FormatChoice | None]):
+    """Modal to choose format preset + latest-only for a single title."""
 
     DEFAULT_CSS = """
     FormatModal {
         align: center middle;
     }
     #modal-box {
-        width: 60;
+        width: 64;
         height: auto;
         background: $surface;
         border: thick $primary;
@@ -76,8 +83,25 @@ class FormatModal(ModalScreen[set[str]]):
         margin-bottom: 1;
         color: $accent;
     }
-    #format-buttons {
-        margin-top: 1;
+    #modal-subtitle {
+        text-align: center;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+    #preset-buttons {
+        height: 3;
+        align: center middle;
+        margin-bottom: 1;
+    }
+    #preset-buttons Button {
+        margin: 0 1;
+    }
+    #latest-row {
+        height: 1;
+        align: center middle;
+        margin-bottom: 1;
+    }
+    #cancel-row {
         align: center middle;
     }
     """
@@ -89,33 +113,43 @@ class FormatModal(ModalScreen[set[str]]):
 
     def compose(self) -> ComposeResult:
         with Container(id="modal-box"):
-            yield Label(f"Formats for: {self._title_name[:50]}", id="modal-title")
-            for ext in sorted(self._available):
-                label = ext.lstrip(".").upper()
-                default = ext in {".epub"} if ".epub" in self._available else True
-                yield Checkbox(label, value=default, id=f"fmt-{ext.lstrip('.')}")
-            with Horizontal(id="format-buttons"):
-                yield Button("Confirm", variant="primary", id="confirm")
-                yield Button("Cancel", variant="default", id="cancel")
+            yield Label(f"[b]{self._title_name[:55]}[/b]", id="modal-title")
+            avail_list = ", ".join(sorted(e.lstrip(".").upper() for e in self._available))
+            yield Label(f"Available: {avail_list or 'unknown'}", id="modal-subtitle")
+            with Horizontal(id="preset-buttons"):
+                if ".epub" in self._available:
+                    yield Button("EPUB only", variant="primary", id="preset-epub")
+                if ".pdf" in self._available:
+                    yield Button("PDF only", variant="primary", id="preset-pdf")
+                yield Button("Both", variant="default", id="preset-both")
+            with Horizontal(id="latest-row"):
+                yield Checkbox("Latest version only (skip older {v1} when {v2} exists)",
+                               value=True, id="cb-latest")
+            with Horizontal(id="cancel-row"):
+                yield Button("Cancel", variant="error", id="cancel")
 
-    @on(Button.Pressed, "#confirm")
-    def on_confirm(self) -> None:
+    def _latest(self) -> bool:
         try:
-            chosen: set[str] = set()
-            for ext in self._available:
-                cb = self.query_one(f"#fmt-{ext.lstrip('.')}", Checkbox)
-                if cb.value:
-                    chosen.add(ext)
-            if not chosen:
-                chosen = self._available.copy()
-            self.dismiss(chosen)
-        except Exception as exc:
-            _log_exc("FormatModal.on_confirm", exc)
-            self.dismiss(self._available.copy())
+            return self.query_one("#cb-latest", Checkbox).value
+        except Exception:
+            return True
+
+    @on(Button.Pressed, "#preset-epub")
+    def _preset_epub(self) -> None:
+        self.dismiss(FormatChoice(formats={".epub"}, latest_only=self._latest()))
+
+    @on(Button.Pressed, "#preset-pdf")
+    def _preset_pdf(self) -> None:
+        self.dismiss(FormatChoice(formats={".pdf"}, latest_only=self._latest()))
+
+    @on(Button.Pressed, "#preset-both")
+    def _preset_both(self) -> None:
+        chosen = self._available & {".epub", ".pdf"} or self._available.copy()
+        self.dismiss(FormatChoice(formats=chosen, latest_only=self._latest()))
 
     @on(Button.Pressed, "#cancel")
-    def on_cancel(self) -> None:
-        self.dismiss(set())
+    def _cancel(self) -> None:
+        self.dismiss(None)
 
 
 # ---------------------------------------------------------------------------
@@ -345,19 +379,22 @@ class ELSApp(App):
             available = {".epub", ".pdf"}
 
         try:
-            formats = await self.push_screen_wait(FormatModal(title_name, available))
+            choice = await self.push_screen_wait(FormatModal(title_name, available))
         except Exception as exc:
             _log_exc("push_screen_wait FormatModal", exc)
-            formats = set()
+            choice = None
 
         try:
-            if formats:
+            if choice is not None and choice.formats:
                 self._selections[entry.href] = TitleSelection(
                     title_name=title_name,
                     title_href=entry.href,
-                    formats=formats,
+                    formats=choice.formats,
+                    latest_only=choice.latest_only,
                 )
-                self.notify(f"Added: {title_name[:35]} ({', '.join(sorted(formats))})", timeout=4)
+                fmt_label = ", ".join(sorted(e.lstrip(".") for e in choice.formats))
+                latest_label = " (latest)" if choice.latest_only else ""
+                self.notify(f"Added: {title_name[:35]} [{fmt_label}{latest_label}]", timeout=4)
             self._refresh_title_list(self.query_one("#search-bar", Input).value)
             self._update_count()
         except Exception as exc:

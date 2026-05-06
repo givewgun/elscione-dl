@@ -56,11 +56,17 @@ def _run_tui() -> None:
                 console.print("[yellow]No titles selected, exiting.")
                 return
             run = RunManifest()
-            await download_titles(
-                [(s.title_name, s.title_href, s.formats) for s in selections],
-                client,
-                run,
-            )
+            # latest_only is per-selection; if any selection has it, we honour
+            # it for that selection. We pass it as a uniform flag using the
+            # first selection's value (TUI applies the same toggle per-title
+            # but the engine accepts only one global flag — so we run titles
+            # in two batches if they differ).
+            groups: dict[bool, list] = {True: [], False: []}
+            for s in selections:
+                groups[s.latest_only].append((s.title_name, s.title_href, s.formats))
+            for latest_flag, batch in groups.items():
+                if batch:
+                    await download_titles(batch, client, run, latest_only=latest_flag)
             _print_summary(run)
 
     asyncio.run(_main())
@@ -78,6 +84,7 @@ def download(
     formats: str = typer.Option("", "--formats", "-f", help="Comma-separated: epub,pdf (default: from config)"),
     concurrency: int = typer.Option(0, "--concurrency", "-c", help="Parallel downloads (0=use config)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="List files without downloading"),
+    latest_only: bool = typer.Option(False, "--latest-only", help="Skip older versions when {v2}+ exists"),
     root: str = typer.Option("", "--root", help="Override OneDrive library root path"),
 ) -> None:
     """Non-interactive download of specific title(s)."""
@@ -92,14 +99,13 @@ def download(
             run = RunManifest()
             selections = []
             for href in title_hrefs:
-                # Accept full URLs too
                 if href.startswith("http"):
                     parsed = urllib.parse.urlparse(href)
                     href = parsed.path
                 title_name = _title_name_from_href(href)
                 selections.append((title_name, href, fmt_set))
 
-            await download_titles(selections, client, run, dry_run=dry_run)
+            await download_titles(selections, client, run, dry_run=dry_run, latest_only=latest_only)
             _print_summary(run)
 
     asyncio.run(_main())
