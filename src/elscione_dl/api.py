@@ -19,7 +19,7 @@ from tenacity import (
 from .config import get_settings
 
 _RETRYABLE = (httpx.HTTPError, httpx.RemoteProtocolError, httpx.TimeoutException)
-_FILE_EXTS = {".epub", ".pdf", ".cbz", ".cbr", ".zip"}
+_FILE_EXTS = {".epub", ".pdf", ".cbz", ".cbr", ".zip", ".mp3", ".m4a", ".m4b", ".opus", ".ogg", ".flac"}
 
 
 @dataclass
