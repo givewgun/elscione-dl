@@ -74,7 +74,7 @@ def format_dir(title_name: str, ext: str) -> Path:
 
     Files with unrecognised extensions go directly into the title directory.
     """
-    known = {".epub", ".pdf", ".cbz", ".cbr", ".zip"}
+    known = {".epub", ".pdf", ".cbz", ".cbr", ".zip", ".mp3", ".m4a", ".m4b", ".opus", ".ogg", ".flac"}
     base = title_dir(title_name)
     if ext.lower() in known:
         d = base / ext.lstrip(".").lower()

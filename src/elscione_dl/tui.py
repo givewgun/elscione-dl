@@ -121,6 +121,12 @@ class FormatModal(ModalScreen[FormatChoice | None]):
                     yield Button("EPUB only", variant="primary", id="preset-epub")
                 if ".pdf" in self._available:
                     yield Button("PDF only", variant="primary", id="preset-pdf")
+                if ".mp3" in self._available:
+                    yield Button("MP3 only", variant="primary", id="preset-mp3")
+                if ".m4a" in self._available:
+                    yield Button("M4A only", variant="primary", id="preset-m4a")
+                if ".m4b" in self._available:
+                    yield Button("M4B only", variant="primary", id="preset-m4b")
                 yield Button("Both", variant="default", id="preset-both")
             with Horizontal(id="latest-row"):
                 yield Checkbox("Latest version only (skip older {v1} when {v2} exists)",
@@ -134,6 +140,8 @@ class FormatModal(ModalScreen[FormatChoice | None]):
         except Exception:
             return True
 
+    _ALL_KNOWN_EXTS = {".epub", ".pdf", ".cbz", ".cbr", ".zip", ".mp3", ".m4a", ".m4b", ".opus", ".ogg", ".flac"}
+
     @on(Button.Pressed, "#preset-epub")
     def _preset_epub(self) -> None:
         self.dismiss(FormatChoice(formats={".epub"}, latest_only=self._latest()))
@@ -142,9 +150,21 @@ class FormatModal(ModalScreen[FormatChoice | None]):
     def _preset_pdf(self) -> None:
         self.dismiss(FormatChoice(formats={".pdf"}, latest_only=self._latest()))
 
+    @on(Button.Pressed, "#preset-mp3")
+    def _preset_mp3(self) -> None:
+        self.dismiss(FormatChoice(formats={".mp3"}, latest_only=self._latest()))
+
+    @on(Button.Pressed, "#preset-m4a")
+    def _preset_m4a(self) -> None:
+        self.dismiss(FormatChoice(formats={".m4a"}, latest_only=self._latest()))
+
+    @on(Button.Pressed, "#preset-m4b")
+    def _preset_m4b(self) -> None:
+        self.dismiss(FormatChoice(formats={".m4b"}, latest_only=self._latest()))
+
     @on(Button.Pressed, "#preset-both")
     def _preset_both(self) -> None:
-        chosen = self._available & {".epub", ".pdf"} or self._available.copy()
+        chosen = self._available & self._ALL_KNOWN_EXTS or self._available.copy()
         self.dismiss(FormatChoice(formats=chosen, latest_only=self._latest()))
 
     @on(Button.Pressed, "#cancel")
@@ -372,11 +392,11 @@ class ELSApp(App):
             available = await probe_title_formats(self._client, entry.href)
         except Exception as exc:
             _log_exc(f"probe_title_formats({entry.href})", exc)
-            available = {".epub", ".pdf"}
-            self.notify("Could not probe formats, defaulting to EPUB+PDF", severity="warning", timeout=4)
+            available = {".epub", ".pdf", ".mp3", ".m4a", ".m4b", ".opus", ".ogg", ".flac"}
+            self.notify("Could not probe formats, defaulting to EPUB+PDF+Audio", severity="warning", timeout=4)
 
         if not available:
-            available = {".epub", ".pdf"}
+            available = {".epub", ".pdf", ".mp3", ".m4a", ".m4b", ".opus", ".ogg", ".flac"}
 
         try:
             choice = await self.push_screen_wait(FormatModal(title_name, available))
