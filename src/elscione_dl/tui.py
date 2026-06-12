@@ -8,7 +8,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
+from curl_cffi.requests import AsyncSession
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -257,7 +257,7 @@ class ELSApp(App):
         Binding("escape", "clear_selection", "Clear"),
     ]
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: AsyncSession) -> None:
         super().__init__()
         self._client = client
         self._catalog: dict[str, list[Entry]] = {}
@@ -454,7 +454,7 @@ def _href_id(href: str) -> str:
     return hashlib.md5(href.encode()).hexdigest()[:12]
 
 
-async def run_tui(client: httpx.AsyncClient) -> list[TitleSelection]:
+async def run_tui(client: AsyncSession) -> list[TitleSelection]:
     """Launch the TUI and return the user's selections. Returns [] on cancel."""
     try:
         app = ELSApp(client)

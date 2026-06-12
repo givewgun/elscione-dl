@@ -8,7 +8,8 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import AsyncIterator
 
-import httpx
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests.exceptions import RequestException
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -18,7 +19,10 @@ from tenacity import (
 
 from .config import get_settings
 
-_RETRYABLE = (httpx.HTTPError, httpx.RemoteProtocolError, httpx.TimeoutException)
+# Server sits behind Cloudflare; a managed challenge (Cf-Mitigated: challenge)
+# blocks plain HTTP clients. curl_cffi's browser-TLS impersonation passes it.
+# RequestException is the base for all curl_cffi errors (HTTP, timeout, conn).
+_RETRYABLE = (RequestException,)
 _FILE_EXTS = {".epub", ".pdf", ".cbz", ".cbr", ".zip", ".mp3", ".m4a", ".m4b", ".opus", ".ogg", ".flac"}
 
 
@@ -43,18 +47,17 @@ class Entry:
         return cfg.base_url + self.href
 
 
-def _make_client() -> httpx.AsyncClient:
+def _make_client() -> AsyncSession:
     cfg = get_settings()
-    return httpx.AsyncClient(
+    # impersonate="chrome" supplies Chrome's full TLS/JA3 fingerprint and header
+    # set, which is what clears the Cloudflare challenge. Do NOT add a custom
+    # User-Agent here — it would desync the fingerprint and re-trigger the block.
+    return AsyncSession(
         base_url=cfg.base_url,
-        http2=True,
-        timeout=httpx.Timeout(30.0, connect=10.0),
-        limits=httpx.Limits(max_connections=6, max_keepalive_connections=4),
-        headers={
-            "User-Agent": "elscione-dl/0.1 (+local)",
-            "Accept": "application/json, text/html, */*",
-        },
-        follow_redirects=True,
+        impersonate="chrome",
+        timeout=(10.0, 30.0),  # (connect, read)
+        max_clients=6,
+        allow_redirects=True,
     )
 
 
@@ -78,7 +81,7 @@ def _parse_items(data: dict) -> list[Entry]:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-async def _post_listing(client: httpx.AsyncClient, href: str) -> list[Entry]:
+async def _post_listing(client: AsyncSession, href: str) -> list[Entry]:
     cfg = get_settings()
     # Jittered throttle between listing requests
     delay = random.uniform(cfg.delay_min_ms, cfg.delay_max_ms) / 1000
@@ -92,7 +95,7 @@ async def _post_listing(client: httpx.AsyncClient, href: str) -> list[Entry]:
     return _parse_items(resp.json())
 
 
-async def list_dir(client: httpx.AsyncClient, href: str) -> list[Entry]:
+async def list_dir(client: AsyncSession, href: str) -> list[Entry]:
     """Return the direct children of the directory at *href*.
 
     h5ai returns a flat snapshot of its whole cache tree with percent-encoded hrefs.
@@ -112,7 +115,7 @@ async def list_dir(client: httpx.AsyncClient, href: str) -> list[Entry]:
 
 
 async def walk_title(
-    client: httpx.AsyncClient,
+    client: AsyncSession,
     title_href: str,
     formats: set[str] | None = None,
     max_depth: int = 3,
@@ -135,7 +138,7 @@ async def walk_title(
 
 
 async def probe_title_formats(
-    client: httpx.AsyncClient, title_href: str
+    client: AsyncSession, title_href: str
 ) -> set[str]:
     """Return the set of file extensions present in a title directory."""
     exts: set[str] = set()

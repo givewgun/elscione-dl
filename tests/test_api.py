@@ -1,9 +1,14 @@
-"""Tests for the h5ai API client using respx to mock HTTP."""
-import pytest
-import respx
-import httpx
+"""Tests for the h5ai API client.
 
-from elscione_dl.api import Entry, list_dir, _make_client
+Network is mocked at the ``_post_listing`` boundary (the only function that
+touches the curl_cffi client), so the directory-filtering logic in ``list_dir``
+is exercised without real HTTP and without depending on a specific client lib.
+"""
+from unittest.mock import patch
+
+import pytest
+
+from elscione_dl.api import Entry, list_dir, _parse_items
 
 
 BASE = "https://server.elscione.com"
@@ -20,14 +25,20 @@ _MOCK_RESPONSE = {
 }
 
 
+def _patch_listing():
+    """Patch _post_listing to return the parsed mock snapshot (no network)."""
+    entries = _parse_items(_MOCK_RESPONSE)
+
+    async def _fake(client, href):
+        return entries
+
+    return patch("elscione_dl.api._post_listing", _fake)
+
+
 @pytest.mark.asyncio
-@respx.mock
 async def test_list_dir_returns_direct_children():
-    respx.post(f"{BASE}/_h5ai/public/index.php").mock(
-        return_value=httpx.Response(200, json=_MOCK_RESPONSE)
-    )
-    async with _make_client() as client:
-        children = await list_dir(client, "/Novels/")
+    with _patch_listing():
+        children = await list_dir(None, "/Novels/")
 
     # Should only include direct children of /Novels/
     hrefs = {e.href for e in children}
@@ -39,13 +50,9 @@ async def test_list_dir_returns_direct_children():
 
 
 @pytest.mark.asyncio
-@respx.mock
 async def test_list_dir_identifies_dirs_and_files():
-    respx.post(f"{BASE}/_h5ai/public/index.php").mock(
-        return_value=httpx.Response(200, json=_MOCK_RESPONSE)
-    )
-    async with _make_client() as client:
-        children = await list_dir(client, "/Novels/")
+    with _patch_listing():
+        children = await list_dir(None, "/Novels/")
 
     dirs = [e for e in children if e.is_dir]
     files = [e for e in children if not e.is_dir]

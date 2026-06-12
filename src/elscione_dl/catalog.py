@@ -5,7 +5,7 @@ import json
 import time
 from pathlib import Path
 
-import httpx
+from curl_cffi.requests import AsyncSession
 
 from .api import Entry, list_dir, _make_client
 from .config import get_settings
@@ -32,20 +32,20 @@ def _save_cache(data: dict) -> None:
         json.dump(data, f)
 
 
-async def fetch_categories(client: httpx.AsyncClient) -> list[Entry]:
+async def fetch_categories(client: AsyncSession) -> list[Entry]:
     """Return top-level category directories (e.g. /Officially Translated Light Novels/)."""
     entries = await list_dir(client, "/")
     return [e for e in entries if e.is_dir]
 
 
-async def fetch_titles(client: httpx.AsyncClient, category_href: str) -> list[Entry]:
+async def fetch_titles(client: AsyncSession, category_href: str) -> list[Entry]:
     """Return title directories within a category."""
     entries = await list_dir(client, category_href)
     return [e for e in entries if e.is_dir]
 
 
 async def fetch_catalog(
-    client: httpx.AsyncClient | None = None,
+    client: AsyncSession | None = None,
     force_refresh: bool = False,
 ) -> dict[str, list[Entry]]:
     """

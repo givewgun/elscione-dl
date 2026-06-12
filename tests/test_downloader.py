@@ -1,10 +1,13 @@
-"""Tests for resume logic and retry behaviour."""
-import asyncio
+"""Tests for resume logic and retry behaviour.
+
+The download path streams through a curl_cffi ``AsyncSession``. Tests use a
+minimal fake that mirrors the bits ``_download_one`` touches: an async
+``stream()`` context manager whose response exposes ``status_code``,
+``headers``, ``raise_for_status()`` and ``aiter_content()``.
+"""
 from pathlib import Path
 
 import pytest
-import respx
-import httpx
 
 from elscione_dl.api import Entry
 from elscione_dl.downloader import _download_one
@@ -17,25 +20,56 @@ def _make_entry(href: str = "/Novels/Title/vol1.epub", size: int = 100) -> Entry
     return Entry(href=href, is_dir=False, size=size, mtime=0)
 
 
+class _FakeResp:
+    def __init__(self, status: int, content: bytes, headers: dict[str, str]):
+        self.status_code = status
+        self.headers = headers
+        self._content = content
+
+    def raise_for_status(self):
+        if not (200 <= self.status_code < 400):
+            from curl_cffi.requests.exceptions import HTTPError
+            raise HTTPError(f"HTTP {self.status_code}", 0, self)
+
+    async def aiter_content(self, chunk_size: int = 8192):
+        for i in range(0, len(self._content), chunk_size):
+            yield self._content[i : i + chunk_size]
+
+
+class _FakeStream:
+    def __init__(self, resp: _FakeResp):
+        self._resp = resp
+
+    async def __aenter__(self) -> _FakeResp:
+        return self._resp
+
+    async def __aexit__(self, *exc) -> bool:
+        return False
+
+
+class _FakeClient:
+    """Stand-in for curl_cffi AsyncSession; records the headers it was sent."""
+
+    def __init__(self, status: int, content: bytes, headers: dict[str, str]):
+        self._resp_args = (status, content, headers)
+        self.last_request_headers: dict[str, str] | None = None
+
+    def stream(self, method: str, url: str, headers: dict[str, str] | None = None):
+        self.last_request_headers = headers
+        return _FakeStream(_FakeResp(*self._resp_args))
+
+
 @pytest.mark.asyncio
-@respx.mock
 async def test_download_creates_file(tmp_path: Path):
     entry = _make_entry()
     content = b"A" * 100
-    respx.get(f"{BASE}/Novels/Title/vol1.epub").mock(
-        return_value=httpx.Response(
-            200,
-            content=content,
-            headers={"Content-Length": str(len(content))},
-        )
-    )
+    client = _FakeClient(200, content, {"Content-Length": str(len(content))})
 
     from rich.progress import Progress
     prog = Progress()
     task = prog.add_task("test", total=None)
 
-    async with httpx.AsyncClient(base_url=BASE) as client:
-        fname, sz = await _download_one(client, entry, tmp_path, prog, task)
+    fname, sz = await _download_one(client, entry, tmp_path, prog, task)
 
     assert fname == "vol1.epub"
     assert sz == 100
@@ -43,7 +77,6 @@ async def test_download_creates_file(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-@respx.mock
 async def test_download_resumes_partial(tmp_path: Path):
     entry = _make_entry()
     full_content = b"A" * 50 + b"B" * 50
@@ -51,33 +84,28 @@ async def test_download_resumes_partial(tmp_path: Path):
     part = tmp_path / "vol1.epub.part"
     part.write_bytes(b"A" * 50)
 
-    respx.get(f"{BASE}/Novels/Title/vol1.epub").mock(
-        return_value=httpx.Response(
-            206,
-            content=b"B" * 50,
-            headers={"Content-Length": "50", "Accept-Ranges": "bytes"},
-        )
-    )
+    client = _FakeClient(206, b"B" * 50, {"Content-Length": "50", "Accept-Ranges": "bytes"})
 
     from rich.progress import Progress
     prog = Progress()
     task = prog.add_task("test", total=None)
 
-    async with httpx.AsyncClient(base_url=BASE) as client:
-        fname, sz = await _download_one(client, entry, tmp_path, prog, task)
+    fname, sz = await _download_one(client, entry, tmp_path, prog, task)
 
     assert (tmp_path / "vol1.epub").read_bytes() == full_content
+    # Resume must request the remaining byte range
+    assert client.last_request_headers == {"Range": "bytes=50-"}
 
 
 @pytest.mark.asyncio
 async def test_dry_run_no_file(tmp_path: Path):
     entry = _make_entry()
+    client = _FakeClient(200, b"", {})
     from rich.progress import Progress
     prog = Progress()
     task = prog.add_task("test", total=None)
 
-    async with httpx.AsyncClient(base_url=BASE) as client:
-        fname, sz = await _download_one(client, entry, tmp_path, prog, task, dry_run=True)
+    fname, sz = await _download_one(client, entry, tmp_path, prog, task, dry_run=True)
 
     assert fname == "vol1.epub"
     assert sz is None

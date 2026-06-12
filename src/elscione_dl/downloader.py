@@ -6,7 +6,8 @@ import random
 from pathlib import Path
 from typing import Iterable
 
-import httpx
+from curl_cffi.requests import AsyncSession
+from curl_cffi.requests.exceptions import HTTPError, RequestException
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -29,7 +30,7 @@ from .config import get_settings
 from .manifest import RunManifest, TitleManifest
 from .paths import format_dir
 
-_RETRYABLE = (httpx.HTTPError, httpx.RemoteProtocolError, httpx.TimeoutException)
+_RETRYABLE = (RequestException,)
 
 
 def _make_progress(console: Console) -> Progress:
@@ -56,7 +57,7 @@ def _short(name: str, n: int = 60) -> str:
 
 
 async def _download_one(
-    client: httpx.AsyncClient,
+    client: AsyncSession,
     entry: Entry,
     dest_dir: Path,
     progress: Progress,
@@ -92,7 +93,7 @@ async def _download_one(
 
         mode = "ab" if resume_from > 0 else "wb"
         with open(part, mode) as f:
-            async for chunk in resp.aiter_bytes(65536):
+            async for chunk in resp.aiter_content(chunk_size=65536):
                 f.write(chunk)
                 progress.advance(task_id, len(chunk))
 
@@ -105,7 +106,7 @@ async def _download_one(
 
 
 async def _download_task(
-    client: httpx.AsyncClient,
+    client: AsyncSession,
     entry: Entry,
     dest_dir: Path,
     semaphore: asyncio.Semaphore,
@@ -142,8 +143,8 @@ async def _download_task(
                 title_manifest.mark_done(fname, entry.url, size)
             run_manifest.record_outcome(fname, "ok")
             console.print(f"[green]✓ done[/green] {_short(fname)}")
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (408, 429):
+        except HTTPError as exc:
+            if exc.response is not None and exc.response.status_code in (408, 429):
                 retry_after = int(exc.response.headers.get("Retry-After", 5))
                 console.print(f"[yellow]⏸  rate-limited[/yellow] {_short(filename)} — sleeping {retry_after}s")
                 await asyncio.sleep(retry_after)
@@ -183,7 +184,7 @@ def _record_failure(
 
 async def download_titles(
     selections: list[tuple[str, str, set[str]]],  # (title_name, title_href, formats)
-    client: httpx.AsyncClient,
+    client: AsyncSession,
     run_manifest: RunManifest,
     dry_run: bool = False,
     latest_only: bool = False,

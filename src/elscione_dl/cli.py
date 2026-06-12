@@ -10,6 +10,9 @@ from typing import Optional
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    # curl_cffi's async backend needs the selector loop on Windows; the default
+    # proactor loop otherwise spawns an extra selector thread and warns.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import typer
 from rich.console import Console
